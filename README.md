@@ -1,1 +1,1 @@
-# encrypted-messaging
+# Encrypted-Messenger
