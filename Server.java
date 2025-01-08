@@ -15,7 +15,7 @@ public class Server {
     private static final String PRIVATE_KEY_FILE = "./server.prv";
     private static String SENDER_PUBLIC_KEY_FILE = "";
     private static String RECIPIENT_PUBLIC_KEY_FILE = "";
-    private static final Map<String, TreeMap<Long, byte[]>> messagesMap = new HashMap<>();
+    private static final Map<String, List<byte[]>> messagesMap = new HashMap<>();
 
     public static void main(String[] args) {
         if (args.length != 1) {
@@ -40,19 +40,15 @@ public class Server {
                 String hashedUserId = (String) in.readObject();
                 System.out.println("user " + hashedUserId + " has logged in");
 
-                // Retrieve messages for the user
-                Map<Long, byte[]> userMap = messagesMap.getOrDefault(hashedUserId, new Map<Long, byte[]>);
+                List<byte[]> messages = messagesMap.getOrDefault(hashedUserId, new ArrayList<>());
 
-                out.writeObject(userMap.size());
+                out.writeObject(messages.size());
 
-                for (Map.Entry<Long, byte[]> entry : userMap.entrySet()) {
-                    long timestamp = entry.getKey();
-                    byte[] message = entry.getValue();
-                    byte[] signature = generateSignatureForMessage(timestamp, message);
+                for (byte[] message : messages) {
+                    byte[] signature = generateSignatureForMessage(message);
 
                     out.writeObject(message);
                     out.writeObject(signature);
-                    out.writeObject(timestamp);
                 }
                 messagesMap.remove(hashedUserId);
                 int numMessages = messages.size();
@@ -60,24 +56,30 @@ public class Server {
                 System.out.println("delivering " + numMessages + " message(s)...");
 
                 Object data = in.readObject();
-                // Check if user chooses to send a message
+                // If user chooses not to send a message
                 if (data instanceof String && data.equals("no_message")) {
                     System.out.println("no incoming message.");
+
+                    // User enters incorrect recipient userid, no pub/prv file
                 } else if (data instanceof String && data.equals("no_recipient"))  {
                     System.out.println("ERROR: recipient not found.");
+
                 } else if  (data instanceof byte[]) {
                     byte[] encryptedMessage = (byte[]) data;
                     Long timestamp = (Long) in.readObject();
                     byte[] timestampBytes = Client.longToBytes(timestamp);
                     byte[] signature = (byte[]) in.readObject();
                     String sender = (String) in.readObject();
+
+                    // Combine into one byte array to verify signature with
                     byte[] combined = new byte[timestampBytes.length + encryptedMessage.length];
                     System.arraycopy(timestampBytes, 0, combined, 0, timestampBytes.length);
                     System.arraycopy(encryptedMessage, 0, combined, timestampBytes.length, encryptedMessage.length);
+
                     Date date = new Date(timestamp);
                     SimpleDateFormat sdf = new SimpleDateFormat("dd-MM-yyyy HH:mm:ss");
                     String formattedDate = sdf.format(date);
-                    out.writeObject(timestamp);
+
                     SENDER_PUBLIC_KEY_FILE = "./" + sender + ".pub";
                     if (verifySignature(combined, signature)) {
                         String decryptedMessage = decryptMessage(encryptedMessage);
@@ -88,10 +90,12 @@ public class Server {
                                 RECIPIENT_PUBLIC_KEY_FILE = "./" + parts[0] + ".pub";
                                 encryptedMessage = encryptMessage(parts[0] + ":" + message);
                                 storeMessage(hashUserId(parts[0]), encryptedMessage);
+
                                 System.out.println("incoming message from " + sender);
                                 System.out.println("Date: " + formattedDate);
                                 System.out.println("recipient: " + parts[0]);
                                 System.out.println("message: " + message);
+
                             } else {
                                 System.out.println("ERROR: Incorrect format.");
                             }
@@ -114,14 +118,55 @@ public class Server {
 
     private static String hashUserId(String userid) throws NoSuchAlgorithmException {
         String secret = "gfhk2024:";
-        String input = secret + userid;
-        MessageDigest md = MessageDigest.getInstance("MD5");
-        byte[] hashedBytes = md.digest(input.getBytes());
-        StringBuilder sb = new StringBuilder();
+        String secretUserid = secret + userid;
+        MessageDigest messageDigest = MessageDigest.getInstance("MD5");
+        byte[] hashedBytes = messageDigest.digest(secretUserid.getBytes());
+        StringBuilder stringBuilder = new StringBuilder();
         for (byte b : hashedBytes) {
-            sb.append(String.format("%02x", b));
+            stringBuilder.append(String.format("%02x", b));
         }
-        return sb.toString();
+        return stringBuilder.toString();
+    }
+
+    private static void storeMessage(String hashedRecipient, byte[] encryptedMessage) {
+        List<byte[]> storedMessages = messagesMap.getOrDefault(hashedRecipient, new ArrayList<>());
+        storedMessages.add(encryptedMessage);
+        messagesMap.put(hashedRecipient, storedMessages);
+    }
+
+    private static boolean verifySignature(byte[] data, byte[] signature) throws Exception {
+
+        byte[] publicKeyBytes = Files.readAllBytes(Paths.get(SENDER_PUBLIC_KEY_FILE));
+        X509EncodedKeySpec encodedKeySpec = new X509EncodedKeySpec(publicKeyBytes);
+        KeyFactory keyFactory = KeyFactory.getInstance("RSA");
+        PublicKey publicKey = keyFactory.generatePublic(encodedKeySpec);
+
+        Signature signature2 = Signature.getInstance("SHA256withRSA");
+        signature2.initVerify(publicKey);
+        signature2.update(data);
+        return signature2.verify(signature);
+    }
+
+    private static byte[] generateSignatureForMessage(byte[] message) throws Exception {
+        byte[] keyBytes = Files.readAllBytes(Paths.get("./Server.prv"));
+        PKCS8EncodedKeySpec encodedKeySpec = new PKCS8EncodedKeySpec(keyBytes);
+        KeyFactory keyFactory = KeyFactory.getInstance("RSA");
+
+        Signature privateSignature = Signature.getInstance("SHA256withRSA");
+        privateSignature.initSign(keyFactory.generatePrivate(encodedKeySpec));
+        privateSignature.update(message);
+        return privateSignature.sign();
+    }
+
+    private static byte[] encryptMessage(String message) throws Exception {
+        byte[] publicKeyBytes = Files.readAllBytes(Paths.get(RECIPIENT_PUBLIC_KEY_FILE));
+        X509EncodedKeySpec encodedKeySpec = new X509EncodedKeySpec(publicKeyBytes);
+        KeyFactory keyFactory = KeyFactory.getInstance("RSA");
+        PublicKey publicKey = keyFactory.generatePublic(encodedKeySpec);
+
+        Cipher cipher = Cipher.getInstance("RSA/ECB/PKCS1Padding");
+        cipher.init(Cipher.ENCRYPT_MODE, publicKey);
+        return cipher.doFinal(message.getBytes());
     }
 
     private static String decryptMessage(byte[] encryptedMessage) {
@@ -132,9 +177,9 @@ public class Server {
             }
 
             byte[] privateKeyBytes = Files.readAllBytes(Paths.get(PRIVATE_KEY_FILE));
-            PKCS8EncodedKeySpec keySpec = new PKCS8EncodedKeySpec(privateKeyBytes);
+            PKCS8EncodedKeySpec encodedKeySpec = new PKCS8EncodedKeySpec(privateKeyBytes);
             KeyFactory keyFactory = KeyFactory.getInstance("RSA");
-            PrivateKey privateKey = keyFactory.generatePrivate(keySpec);
+            PrivateKey privateKey = keyFactory.generatePrivate(encodedKeySpec);
 
             Cipher cipher = Cipher.getInstance("RSA/ECB/PKCS1Padding");
             cipher.init(Cipher.DECRYPT_MODE, privateKey);
@@ -147,47 +192,5 @@ public class Server {
             e.printStackTrace();
             return null;
         }
-    }
-
-    private static void storeMessage(String hashedRecipient, byte[] encryptedMessage) {
-        List<byte[]> recipientMessages = messagesMap.getOrDefault(hashedRecipient, new ArrayList<>());
-        recipientMessages.add(encryptedMessage);
-        messagesMap.put(hashedRecipient, recipientMessages);
-    }
-
-    private static boolean verifySignature(byte[] data, byte[] signature) throws Exception {
-
-        byte[] publicKeyBytes = Files.readAllBytes(Paths.get(SENDER_PUBLIC_KEY_FILE));
-        X509EncodedKeySpec keySpec = new X509EncodedKeySpec(publicKeyBytes);
-        KeyFactory keyFactory = KeyFactory.getInstance("RSA");
-        PublicKey publicKey = keyFactory.generatePublic(keySpec);
-
-        Signature sig = Signature.getInstance("SHA256withRSA");
-        sig.initVerify(publicKey);
-        sig.update(data);
-        return sig.verify(signature);
-    }
-    private static byte[] generateSignatureForMessage(Long timestamp, byte[] message) throws Exception {
-        byte[] combined = new byte[timestamp, message];
-
-        byte[] keyBytes = Files.readAllBytes(Paths.get("./Server.prv"));
-        PKCS8EncodedKeySpec spec = new PKCS8EncodedKeySpec(keyBytes);
-        KeyFactory kf = KeyFactory.getInstance("RSA");
-
-        Signature privateSignature = Signature.getInstance("SHA256withRSA");
-        privateSignature.initSign(kf.generatePrivate(spec));
-        privateSignature.update(message);
-        return privateSignature.sign();
-    }
-
-    private static byte[] encryptMessage(String message) throws Exception {
-        byte[] publicKeyBytes = Files.readAllBytes(Paths.get(RECIPIENT_PUBLIC_KEY_FILE));
-        X509EncodedKeySpec keySpec = new X509EncodedKeySpec(publicKeyBytes);
-        KeyFactory keyFactory = KeyFactory.getInstance("RSA");
-        PublicKey publicKey = keyFactory.generatePublic(keySpec);
-
-        Cipher cipher = Cipher.getInstance("RSA/ECB/PKCS1Padding");
-        cipher.init(Cipher.ENCRYPT_MODE, publicKey);
-        return cipher.doFinal(message.getBytes());
     }
 }

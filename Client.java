@@ -6,8 +6,6 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.security.*;
 import java.security.spec.*;
-import java.text.SimpleDateFormat;
-import java.util.Date;
 import javax.crypto.*;
 
 public class Client {
@@ -41,24 +39,13 @@ public class Client {
             System.out.println(numMessages + " new message(s) for you.");
 
             for (int i = 0; i < numMessages; i++) {
-                // long timestamp = System.currentTimeMillis();
                 byte[] encryptedMessage = (byte[]) in.readObject();
                 byte[] signature = (byte[]) in.readObject();
-                // byte[] timestampBytes = longToBytes(timestamp);
-
-//                byte[] combined = new byte[timestampBytes.length + encryptedMessage.length];
-//                System.arraycopy(timestampBytes, 0, combined, 0, timestampBytes.length);
-//                System.arraycopy(encryptedMessage, 0, combined, timestampBytes.length, encryptedMessage.length);
 
                 if (verifySignature(encryptedMessage, signature)) {
                     String decryptedMessage = decryptMessage(encryptedMessage, userid);
                     String[] parts = decryptedMessage.split(":");
                     String message = parts[1];
-                    Long timestamp = (long) in.readObject();
-                    Date date = new Date(timestamp);
-                    SimpleDateFormat sdf = new SimpleDateFormat("dd-MM-yyyy HH:mm:ss");
-                    String formattedDate = sdf.format(date);
-                    System.out.println("Date: " + formattedDate);
                     System.out.println("Message: " + message);
 
                 } else {
@@ -74,11 +61,13 @@ public class Client {
                 System.out.println("Enter the recipient userid:");
                 String recipient = reader.readLine();
                 Path recipientFilePath = Paths.get("./" + recipient + ".pub");
+                // If recipient userid doesn't exist
                 if (!Files.exists(recipientFilePath)) {
                     System.out.println("ERROR: Recipient not found.");
                     out.writeObject("no_recipient");
                     return;
                 }
+
                 PRIVATE_KEY_FILE = "./" + userid + ".prv";
                 System.out.println("Enter your message:");
                 String message = reader.readLine();
@@ -96,6 +85,7 @@ public class Client {
                 out.writeObject(timestamp);
                 out.writeObject(signature);
                 out.writeObject(userid);
+
             } else {
                 // Tell the server that the user chose not to send a message
                 out.writeObject("no_message");
@@ -108,21 +98,21 @@ public class Client {
 
     private static String hashUserId(String userid) throws NoSuchAlgorithmException {
         String secret = "gfhk2024:";
-        String input = secret + userid;
-        MessageDigest md = MessageDigest.getInstance("MD5");
-        byte[] hashedBytes = md.digest(input.getBytes());
-        StringBuilder sb = new StringBuilder();
+        String secretUserid = secret + userid;
+        MessageDigest messageDigest = MessageDigest.getInstance("MD5");
+        byte[] hashedBytes = messageDigest.digest(secretUserid.getBytes());
+        StringBuilder stringBuilder = new StringBuilder();
         for (byte b : hashedBytes) {
-            sb.append(String.format("%02x", b));
+            stringBuilder.append(String.format("%02x", b));
         }
-        return sb.toString();
+        return stringBuilder.toString();
     }
 
     private static byte[] encryptMessage(String message) throws Exception {
         byte[] publicKeyBytes = Files.readAllBytes(Paths.get(SERVER_PUBLIC_KEY_FILE));
-        X509EncodedKeySpec keySpec = new X509EncodedKeySpec(publicKeyBytes);
+        X509EncodedKeySpec encodedKeySpec = new X509EncodedKeySpec(publicKeyBytes);
         KeyFactory keyFactory = KeyFactory.getInstance("RSA");
-        PublicKey publicKey = keyFactory.generatePublic(keySpec);
+        PublicKey publicKey = keyFactory.generatePublic(encodedKeySpec);
 
         Cipher cipher = Cipher.getInstance("RSA/ECB/PKCS1Padding");
         cipher.init(Cipher.ENCRYPT_MODE, publicKey);
@@ -132,9 +122,9 @@ public class Client {
     private static String decryptMessage(byte[] encryptedMessage, String userid) throws Exception {
         PRIVATE_KEY_FILE = "./" + userid + ".prv";
         byte[] privateKeyBytes = Files.readAllBytes(Paths.get(PRIVATE_KEY_FILE));
-        PKCS8EncodedKeySpec keySpec = new PKCS8EncodedKeySpec(privateKeyBytes);
+        PKCS8EncodedKeySpec encodedKeySpec = new PKCS8EncodedKeySpec(privateKeyBytes);
         KeyFactory keyFactory = KeyFactory.getInstance("RSA");
-        PrivateKey privateKey = keyFactory.generatePrivate(keySpec);
+        PrivateKey privateKey = keyFactory.generatePrivate(encodedKeySpec);
 
         Cipher cipher = Cipher.getInstance("RSA/ECB/PKCS1Padding");
         cipher.init(Cipher.DECRYPT_MODE, privateKey);
@@ -142,17 +132,12 @@ public class Client {
         return new String(decryptedBytes);
     }
 
-    public static byte[] longToBytes(long value) {
-        ByteBuffer buffer = ByteBuffer.allocate(Long.BYTES);
-        buffer.putLong(value);
-        return buffer.array();
-    }
 
     private static byte[] generateSignature(byte[] data) throws Exception {
         byte[] privateKeyBytes = Files.readAllBytes(Paths.get(PRIVATE_KEY_FILE));
-        PKCS8EncodedKeySpec keySpec = new PKCS8EncodedKeySpec(privateKeyBytes);
+        PKCS8EncodedKeySpec encodedKeySpec = new PKCS8EncodedKeySpec(privateKeyBytes);
         KeyFactory keyFactory = KeyFactory.getInstance("RSA");
-        PrivateKey privateKey = keyFactory.generatePrivate(keySpec);
+        PrivateKey privateKey = keyFactory.generatePrivate(encodedKeySpec);
 
         Signature signature = Signature.getInstance("SHA256withRSA");
         signature.initSign(privateKey);
@@ -162,13 +147,19 @@ public class Client {
 
     private static boolean verifySignature(byte[] data, byte[] signature) throws Exception {
         byte[] publicKeyBytes = Files.readAllBytes(Paths.get(SERVER_PUBLIC_KEY_FILE));
-        X509EncodedKeySpec keySpec = new X509EncodedKeySpec(publicKeyBytes);
+        X509EncodedKeySpec encodedKeySpec = new X509EncodedKeySpec(publicKeyBytes);
         KeyFactory keyFactory = KeyFactory.getInstance("RSA");
-        PublicKey publicKey = keyFactory.generatePublic(keySpec);
+        PublicKey publicKey = keyFactory.generatePublic(encodedKeySpec);
 
-        Signature sig = Signature.getInstance("SHA256withRSA");
-        sig.initVerify(publicKey);
-        sig.update(data);
-        return sig.verify(signature);
+        Signature signature2 = Signature.getInstance("SHA256withRSA");
+        signature2.initVerify(publicKey);
+        signature2.update(data);
+        return signature2.verify(signature);
+    }
+
+    public static byte[] longToBytes(long value) {
+        ByteBuffer buffer = ByteBuffer.allocate(Long.BYTES);
+        buffer.putLong(value);
+        return buffer.array();
     }
 }
