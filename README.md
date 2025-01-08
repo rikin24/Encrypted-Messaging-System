@@ -12,5 +12,5 @@ A client-server system for securely exchanging messages between users, using RSA
    java RSAKeyGen <userid>
    ```
 4. Run the server via the command ```java Server <port>```
-5. Log in as a user: ```java Client <host> <port> <userid>
+5. Log in as a user: ```java Client <host> <port> <userid>```
 6. Follow the intuitive prompts once logged in to being messaging securely!
