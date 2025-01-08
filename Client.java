@@ -25,7 +25,7 @@ public class Client {
 
         String host = args[0];
         int port = Integer.parseInt(args[1]);
-        String userid = args[2];
+        String userid = args[2].toLowerCase();
 
         try {
             Socket socket = new Socket(host, port);
@@ -59,7 +59,7 @@ public class Client {
             String choice = reader.readLine();
             if (choice.equalsIgnoreCase("y")) {
                 System.out.println("Enter the recipient userid:");
-                String recipient = reader.readLine();
+                String recipient = reader.readLine().toLowerCase();
                 Path recipientFilePath = Paths.get("./" + recipient + ".pub");
                 // If recipient userid doesn't exist
                 if (!Files.exists(recipientFilePath)) {

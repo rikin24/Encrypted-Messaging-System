@@ -69,7 +69,7 @@ public class Server {
                     Long timestamp = (Long) in.readObject();
                     byte[] timestampBytes = Client.longToBytes(timestamp);
                     byte[] signature = (byte[]) in.readObject();
-                    String sender = (String) in.readObject();
+                    String sender = ((String) in.readObject()).toLowerCase();
 
                     // Combine into one byte array to verify signature with
                     byte[] combined = new byte[timestampBytes.length + encryptedMessage.length];
@@ -85,6 +85,7 @@ public class Server {
                         String decryptedMessage = decryptMessage(encryptedMessage);
                         if (decryptedMessage != null) {
                             String[] parts = decryptedMessage.split(":");
+                            String recipient = parts[0].toLowerCase();
                             if (parts.length >= 2) {
                                 String message = parts[1];
                                 RECIPIENT_PUBLIC_KEY_FILE = "./" + parts[0] + ".pub";
@@ -118,7 +119,7 @@ public class Server {
 
     private static String hashUserId(String userid) throws NoSuchAlgorithmException {
         String secret = "gfhk2024:";
-        String secretUserid = secret + userid;
+        String secretUserid = secret + userid.toLowerCase();
         MessageDigest messageDigest = MessageDigest.getInstance("MD5");
         byte[] hashedBytes = messageDigest.digest(secretUserid.getBytes());
         StringBuilder stringBuilder = new StringBuilder();

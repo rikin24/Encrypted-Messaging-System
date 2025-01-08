@@ -20,15 +20,17 @@ public class RSAKeyGen {
 			System.exit(-1);
 		}
 
+		String userId = args[0].toLowerCase();
+
 		KeyPairGenerator kpg = KeyPairGenerator.getInstance("RSA");
 		kpg.initialize(2048);
 		KeyPair kp = kpg.genKeyPair();
 
-		FileOutputStream fos = new FileOutputStream(args[0] + ".pub");
+		FileOutputStream fos = new FileOutputStream(userId + ".pub");
 		fos.write(kp.getPublic().getEncoded());
 		fos.close();
 
-		fos = new FileOutputStream(args[0] + ".prv");
+		fos = new FileOutputStream(userId + ".prv");
 		fos.write(kp.getPrivate().getEncoded());
 		fos.close();
 
